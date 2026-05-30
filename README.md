@@ -227,6 +227,12 @@ without restarting the proxy. For example, `gpt-5.4-fast[1m]` is sent upstream a
 model `gpt-5.4` with `service_tier: "priority"`. An explicit
 `codex.serviceTier` / `CCP_CODEX_SERVICE_TIER` override still takes precedence.
 
+Reasoning effort: Claude Code's `output_config.effort` value (the one you see in
+the UI as `◐ medium · /effort`) is forwarded as Codex `reasoning.effort` (`low`
+/ `medium` / `high` / `xhigh`). Claude Code's `max` value is sent upstream as
+`xhigh`. An explicit `codex.effort` / `CCP_CODEX_EFFORT` override still takes
+precedence and can also force `none`.
+
 Confirmed working on **Plus**:
 
 - `gpt-5.4`
