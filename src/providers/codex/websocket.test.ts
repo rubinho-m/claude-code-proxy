@@ -1,9 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { createServer } from "node:http";
 import WebSocket, { WebSocketServer } from "ws";
 import type { RequestContext } from "../types.ts";
 import {
   CodexWebSocketSetupError,
+  clearCodexWebSocketPoolForTests,
   codexWebSocketHeaders,
   codexWebSocketRequest,
   toWebSocketUrl,
@@ -27,6 +28,10 @@ function ctx(): RequestContext {
   };
 }
 
+afterEach(() => {
+  clearCodexWebSocketPoolForTests();
+});
+
 function body(): ResponsesWebSocketRequest {
   return {
     model: "gpt-5.5",
@@ -48,17 +53,26 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<string> {
 }
 
 async function withServer(
-  handler: (socket: WebSocket, requestBody: Promise<unknown>) => void,
+  handler: (socket: WebSocket, requestBody: Promise<unknown>, request: import("node:http").IncomingMessage) => void,
 ): Promise<{ url: string; close: () => Promise<void> }> {
   const server = createServer();
   const wss = new WebSocketServer({ server });
-  wss.on("connection", (socket) => {
-    let resolveBody: (value: unknown) => void = () => {};
-    const requestBody = new Promise<unknown>((resolve) => {
-      resolveBody = resolve;
+  wss.on("connection", (socket, request) => {
+    const messages: unknown[] = [];
+    const waiters: ((value: unknown) => void)[] = [];
+    const nextBody = () =>
+      new Promise<unknown>((resolve) => {
+        const message = messages.shift();
+        if (message !== undefined) resolve(message);
+        else waiters.push(resolve);
+      });
+    socket.on("message", (data) => {
+      const message = JSON.parse(data.toString());
+      const waiter = waiters.shift();
+      if (waiter) waiter(message);
+      else messages.push(message);
     });
-    socket.once("message", (data) => resolveBody(JSON.parse(data.toString())));
-    handler(socket, requestBody);
+    handler(socket, nextBody(), request);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -154,7 +168,40 @@ describe("Codex WebSocket helpers", () => {
       );
     });
     try {
-      await expect(
+      let caught: unknown;
+      try {
+        await codexWebSocketRequest({
+          url: server.url,
+          headers: new Headers(),
+          body: body(),
+          ctx: ctx(),
+          connectTimeoutMs: 1_000,
+          idleTimeoutMs: 1_000,
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(CodexWebSocketSetupError);
+      const err = caught as CodexWebSocketSetupError;
+      expect(err.status).toBe(429);
+      expect(err.code).toBe("rate_limit");
+      expect(err.retryAfter).toBe("3");
+      expect(err.requestSent).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reuses a pooled websocket", async () => {
+    let sockets = 0;
+    const server = await withServer((socket) => {
+      sockets++;
+      socket.on("message", () => {
+        socket.send(JSON.stringify({ type: "response.completed", response: { id: `resp_${sockets}` } }));
+      });
+    });
+    try {
+      const request = () =>
         codexWebSocketRequest({
           url: server.url,
           headers: new Headers(),
@@ -162,13 +209,41 @@ describe("Codex WebSocket helpers", () => {
           ctx: ctx(),
           connectTimeoutMs: 1_000,
           idleTimeoutMs: 1_000,
-        }),
-      ).rejects.toMatchObject({
-        name: "CodexWebSocketSetupError",
-        status: 429,
-        code: "rate_limit",
-        retryAfter: "3",
+          poolKey: "session-1",
+        });
+
+      await collect(await request());
+      await collect(await request());
+
+      expect(sockets).toBe(1);
+    } finally {
+      clearCodexWebSocketPoolForTests();
+      await server.close();
+    }
+  });
+
+  it("does not pool websocket requests without a pool key", async () => {
+    let sockets = 0;
+    const server = await withServer((socket) => {
+      sockets++;
+      socket.on("message", () => {
+        socket.send(JSON.stringify({ type: "response.completed", response: { id: `resp_${sockets}` } }));
       });
+    });
+    try {
+      const makeRequest = () =>
+        codexWebSocketRequest({
+          url: server.url,
+          headers: new Headers(),
+          body: body(),
+          ctx: ctx(),
+          connectTimeoutMs: 1_000,
+          idleTimeoutMs: 1_000,
+        }).then(collect);
+
+      await makeRequest();
+      await makeRequest();
+      expect(sockets).toBe(2);
     } finally {
       await server.close();
     }

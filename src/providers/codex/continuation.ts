@@ -62,7 +62,11 @@ export function recordContinuation(
   outputItems: ResponsesInputItem[],
   now = Date.now(),
 ): void {
-  if (!sessionId || !responseId) return;
+  if (!sessionId) return;
+  if (!responseId) {
+    clearContinuation(sessionId);
+    return;
+  }
   const transcript = [...requestBody.input, ...outputItems];
   const transcriptBytes = byteLength(JSON.stringify(transcript));
   if (transcriptBytes > MAX_SESSION_TRANSCRIPT_BYTES) {
@@ -86,6 +90,10 @@ export function clearContinuation(sessionId: string | undefined): void {
   const existing = states.get(sessionId);
   if (existing) totalTranscriptBytes -= existing.transcriptBytes;
   states.delete(sessionId);
+}
+
+export function hasContinuationForTests(sessionId: string): boolean {
+  return states.has(sessionId);
 }
 
 export function clearAllContinuationsForTests(): void {

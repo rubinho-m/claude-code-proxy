@@ -1,5 +1,11 @@
 import { CODEX_API_ENDPOINT, ORIGINATOR as ORIGINATOR_DEFAULT } from "./auth/constants.ts";
-import { codexBaseUrl, codexOriginator, codexTransport, codexUserAgent } from "../../config.ts";
+import {
+  codexBaseUrl,
+  codexOriginator,
+  codexPreviousResponseId,
+  codexTransport,
+  codexUserAgent,
+} from "../../config.ts";
 declare const BUILD_VERSION: string | undefined;
 const PROXY_VERSION = typeof BUILD_VERSION === "string" ? BUILD_VERSION : "dev";
 import { forceRefresh, getAuth } from "./auth/manager.ts";
@@ -13,8 +19,10 @@ import {
   CodexWebSocketSetupError,
   codexWebSocketHeaders,
   codexWebSocketRequest,
+  invalidateCodexWebSocketPoolKey,
+  isPreviousResponseMissingError,
 } from "./websocket.ts";
-import type { ContinuationCandidate } from "./continuation.ts";
+import { clearContinuation, type ContinuationCandidate } from "./continuation.ts";
 
 const FETCH_WATCHDOG_INTERVAL_MS = 30_000;
 let fetchHeaderTimeoutMs = 60_000;
@@ -33,6 +41,7 @@ export interface CodexResponse {
 
 export interface PostCodexOptions {
   continuation?: ContinuationCandidate;
+  poolKey?: string;
 }
 
 export async function postCodex(
@@ -100,6 +109,7 @@ async function attemptPostCodex(
     if (err.status === 429) {
       throw new CodexError(429, "Rate limited", err.message, { retryAfter: err.retryAfter });
     }
+    if (err.requestSent) throw err;
     if (err.status !== 401 && err.status !== 403) throw err;
     log.warn("codex websocket auth failed, refreshing token", { status: err.status });
     auth = await forceRefresh();
@@ -150,11 +160,19 @@ async function doFetch(
   opts: PostCodexOptions,
 ): Promise<Response> {
   const mode = codexTransport();
-  if (mode === "websocket") return doFetchWebSocket(accessToken, accountId, body, ctx, log, opts);
+  const continuationEnabled = codexPreviousResponseId();
+  const websocketOpts = {
+    ...opts,
+    poolKey: continuationEnabled ? ctx.sessionId : undefined,
+  };
+  if (mode === "websocket") {
+    return doFetchWebSocket(accessToken, accountId, body, ctx, log, websocketOpts);
+  }
   if (mode === "auto") {
     try {
-      return await doFetchWebSocket(accessToken, accountId, body, ctx, log, opts);
+      return await doFetchWebSocket(accessToken, accountId, body, ctx, log, websocketOpts);
     } catch (err) {
+      if (err instanceof CodexWebSocketSetupError && err.requestSent) throw err;
       log.warn("codex websocket failed before response, falling back to http", {
         err: String(err),
       });
@@ -234,14 +252,34 @@ async function doFetchWebSocket(
     size,
   });
   const startedAt = Date.now();
-  const stream = await codexWebSocketRequest({
-    url: codexUrl,
-    headers,
-    body: wsBody,
-    ctx,
-    connectTimeoutMs: 15_000,
-    idleTimeoutMs: 300_000,
-  });
+  let stream: ReadableStream<Uint8Array>;
+  try {
+    stream = await codexWebSocketRequest({
+      url: codexUrl,
+      headers,
+      body: wsBody,
+      ctx,
+      connectTimeoutMs: 15_000,
+      idleTimeoutMs: 300_000,
+      poolKey: opts.poolKey,
+    });
+  } catch (err) {
+    if (!isSafeFullWebSocketRetry(err, continuation)) throw err;
+    clearContinuation(ctx.sessionId);
+    invalidateCodexWebSocketPoolKey(opts.poolKey);
+    log.warn("codex previous response missing, retrying full websocket request", {
+      previousResponseId: continuation?.previousResponseId,
+    });
+    stream = await codexWebSocketRequest({
+      url: codexUrl,
+      headers,
+      body: toWebSocketRequest(body),
+      ctx,
+      connectTimeoutMs: 15_000,
+      idleTimeoutMs: 300_000,
+      poolKey: opts.poolKey,
+    });
+  }
   const elapsedMs = Date.now() - startedAt;
   const responseHeaders = new Headers({ "content-type": "text/event-stream" });
   ctx.traffic?.writeJson("030-upstream-response-headers", {
@@ -338,6 +376,14 @@ async function safeText(resp: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+function isSafeFullWebSocketRetry(
+  err: unknown,
+  continuation: ContinuationCandidate | undefined,
+): boolean {
+  if (!continuation?.previousResponseId) return false;
+  return isPreviousResponseMissingError(err);
 }
 
 export class CodexHeaderTimeoutError extends Error {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   clearAllContinuationsForTests,
   continuationCandidate,
+  hasContinuationForTests,
   recordContinuation,
 } from "./continuation.ts";
 import type { ResponsesInputItem, ResponsesRequest } from "./translate/request.ts";
@@ -68,7 +69,7 @@ describe("continuationCandidate", () => {
     const second = requestWithInput(first.input, { tool_choice: "none" });
 
     expect(continuationCandidate("s1", second, true).disabledReason).toBe("prompt_changed");
-    expect(continuationCandidate("s1", second, true).disabledReason).toBe("missing_state");
+    expect(hasContinuationForTests("s1")).toBe(false);
   });
 
   it("preserves state when an exact repeat has no input delta", () => {
@@ -102,6 +103,7 @@ describe("continuationCandidate", () => {
     ]);
 
     expect(continuationCandidate("s1", second, true).disabledReason).toBe("not_append_only");
+    expect(hasContinuationForTests("s1")).toBe(false);
   });
 
   it("handles previous function call output as visible transcript", () => {
@@ -136,6 +138,29 @@ describe("continuationCandidate", () => {
       { type: "function_call_output", call_id: "call_1", output: "contents" },
       { type: "message", role: "user", content: [{ type: "input_text", text: "summarize" }] },
     ]);
+  });
+
+  it("expires stale state", () => {
+    const first = requestWithInput([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "one" }] },
+    ]);
+    recordContinuation("s1", first, "resp_1", [], 1_000);
+
+    expect(continuationCandidate("s1", first, true, 31 * 60 * 1_000).disabledReason).toBe(
+      "missing_state",
+    );
+    expect(hasContinuationForTests("s1")).toBe(false);
+  });
+
+  it("clears state when the response id is missing", () => {
+    const first = requestWithInput([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "one" }] },
+    ]);
+    recordContinuation("s1", first, "resp_1", []);
+
+    recordContinuation("s1", first, undefined, []);
+
+    expect(hasContinuationForTests("s1")).toBe(false);
   });
 
   it("does not store oversized session transcripts", () => {

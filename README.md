@@ -529,9 +529,17 @@ affecting other keys.
 Codex uses the WebSocket Responses transport by default. Set
 `CCP_CODEX_TRANSPORT=http` to use the older HTTP SSE transport for debugging or
 compatibility, or `CCP_CODEX_TRANSPORT=auto` to try WebSocket with HTTP fallback
-before any upstream event is exposed. `CCP_CODEX_PREVIOUS_RESPONSE_ID=1` enables
-WebSocket continuation for append-only turns. Continuation reduces repeated
-request upload size, but it does not increase the upstream model context window.
+only when setup fails before a request is sent upstream.
+`CCP_CODEX_PREVIOUS_RESPONSE_ID=1` enables opt-in WebSocket continuation for
+append-only turns. Continuation keeps in-memory state keyed by Claude Code
+session id, reuses a session WebSocket while it remains open, and sends
+`previous_response_id` only when the translated request shape is unchanged and
+the new input strictly extends the previous transcript. On mismatch, missing
+state, missing upstream response, closed connections, or setup failure, the
+proxy clears unsafe continuation state and sends the full request instead.
+Continuation reduces repeated request upload size, but it does not increase the
+upstream model context window. Multi-process or load-balanced deployments need
+sticky sessions or shared state before enabling continuation.
 
 ### Files
 
