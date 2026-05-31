@@ -149,16 +149,22 @@ Or set it persistently in `~/.claude/settings.json`:
 ### 5. Context window size
 
 Claude Code decides auto-compaction based on the model's context window. For
-unknown models, Claude Code uses its own fallback context size. Do not append
-`[1m]` to Codex model names unless the upstream model really supports a 1M-token
-window. Current official Codex metadata reports `gpt-5.5` with a 272K-token
-window, so `gpt-5.5[1m]` makes Claude Code wait too long before compacting and
-can cause upstream context-window errors.
+unknown models, Claude Code uses its own fallback context size. The `[1m]` suffix
+is a local Claude Code hint that raises that compaction threshold. It is useful
+only when the upstream model can actually handle a window that large.
 
 Use the plain Codex model name for Codex models, such as `gpt-5.5` or
-`gpt-5.4-mini`. The proxy still strips a trailing `[1m]` for compatibility, but
-that suffix only affects Claude Code's local compaction threshold. It does not
-increase Codex's upstream context window.
+`gpt-5.4-mini`. The proxy strips a trailing `[1m]` for compatibility before
+sending the request upstream, but the suffix has already affected Claude Code's
+local compaction decision. It does not increase Codex's upstream context window.
+
+Official Codex metadata reports `gpt-5.5` with a 272K-token window, not a 1M
+window. The official Codex client compacts against that metadata, around 90
+percent of the model window, about 244.8K tokens for `gpt-5.5`.
+
+That means `gpt-5.5[1m]` can make Claude Code wait longer than official Codex
+would before compacting, while the proxy still sends `gpt-5.5` to an upstream
+model with the real 272K limit. This can produce upstream context-window errors.
 
 Kimi can still use `kimi-for-coding[1m]` if you want Claude Code to use a larger
 local compaction threshold for that provider.
@@ -492,25 +498,25 @@ Windows, and at
 }
 ```
 
-| Variable                 | Config key          | Default                                           | Purpose                                                                                                          |
-| ------------------------ | ------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `PORT`                   | `port`              | `18765`                                           | Proxy listen port                                                                                                |
-| `XDG_STATE_HOME`         | —                   | `~/.local/state`                                  | Linux/macOS base dir for `proxy.log`                                                                             |
-| `CCP_LOG_STDERR`         | `log.stderr`        | unset                                             | Also mirror log lines to stderr                                                                                  |
-| `CCP_LOG_VERBOSE`        | `log.verbose`       | unset                                             | Log full request/response bodies + every SSE event                                                               |
-| `CCP_TRAFFIC_LOG`        | —                   | unset                                             | Write per-request traffic captures under `traffic/` for session debugging                                        |
-| `CCP_ALIAS_PROVIDER`     | `aliasProvider`     | `codex`                                           | Route Anthropic-style aliases (`haiku`, `sonnet`, `opus`, `claude-*`) through `codex` or `kimi`                  |
-| `CCP_KIMI_OAUTH_HOST`    | `kimi.oauthHost`    | `https://auth.kimi.com`                           | Override Kimi's OAuth host (debugging only)                                                                      |
-| `CCP_KIMI_BASE_URL`      | `kimi.baseUrl`      | `https://api.kimi.com/coding/v1`                  | Override Kimi's API base URL                                                                                     |
-| `CCP_CODEX_MODEL`        | `codex.model`       | unset                                             | Force all Codex requests to this model (`gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`)        |
-| `CCP_CODEX_EFFORT`       | `codex.effort`      | unset                                             | Force all Codex requests to this reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`)                     |
-| `CCP_CODEX_SERVICE_TIER` | `codex.serviceTier` | unset                                             | Force all Codex requests to this service tier (`fast`/`priority`, `flex`; `fast` is sent upstream as `priority`) |
-| `CCP_CODEX_BASE_URL`     | `codex.baseUrl`     | `https://chatgpt.com/backend-api/codex/responses` | Override the Codex Responses endpoint                                                                            |
-| `CCP_CODEX_ORIGINATOR`   | `codex.originator`  | `claude-code-proxy`                               | Override the `originator` header sent to Codex                                                                   |
-| `CCP_CODEX_USER_AGENT`   | `codex.userAgent`   | `claude-code-proxy/<version>`                     | Override the `User-Agent` header sent to Codex                                                                   |
-| `CCP_KIMI_USER_AGENT`    | `kimi.userAgent`    | `KimiCLI/1.37.0`                                  | Override the `User-Agent` header sent to Kimi                                                                    |
-| `CCP_ORIGINATOR`         | —                   | `claude-code-proxy`                               | Fallback for `CCP_CODEX_ORIGINATOR`                                                                              |
-| `CCP_USER_AGENT`         | —                   | unset                                             | Fallback for `CCP_CODEX_USER_AGENT` and `CCP_KIMI_USER_AGENT`                                                    |
+| Variable                 | Config key          | Default                                           | Purpose                                                                                                                          |
+| ------------------------ | ------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                   | `port`              | `18765`                                           | Proxy listen port                                                                                                                |
+| `XDG_STATE_HOME`         | —                   | `~/.local/state`                                  | Linux/macOS base dir for `proxy.log`                                                                                             |
+| `CCP_LOG_STDERR`         | `log.stderr`        | unset                                             | Also mirror log lines to stderr                                                                                                  |
+| `CCP_LOG_VERBOSE`        | `log.verbose`       | unset                                             | Log full request/response bodies + every SSE event                                                                               |
+| `CCP_TRAFFIC_LOG`        | —                   | unset                                             | Write per-request traffic captures under `traffic/` for session debugging                                                        |
+| `CCP_ALIAS_PROVIDER`     | `aliasProvider`     | `codex`                                           | Route Anthropic-style aliases (`haiku`, `sonnet`, `opus`, `claude-*`) through `codex` or `kimi`                                  |
+| `CCP_KIMI_OAUTH_HOST`    | `kimi.oauthHost`    | `https://auth.kimi.com`                           | Override Kimi's OAuth host (debugging only)                                                                                      |
+| `CCP_KIMI_BASE_URL`      | `kimi.baseUrl`      | `https://api.kimi.com/coding/v1`                  | Override Kimi's API base URL                                                                                                     |
+| `CCP_CODEX_MODEL`        | `codex.model`       | unset                                             | Force all Codex requests to this model (`gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`) |
+| `CCP_CODEX_EFFORT`       | `codex.effort`      | unset                                             | Force all Codex requests to this reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`)                                     |
+| `CCP_CODEX_SERVICE_TIER` | `codex.serviceTier` | unset                                             | Force all Codex requests to this service tier (`fast`/`priority`, `flex`; `fast` is sent upstream as `priority`)                 |
+| `CCP_CODEX_BASE_URL`     | `codex.baseUrl`     | `https://chatgpt.com/backend-api/codex/responses` | Override the Codex Responses endpoint                                                                                            |
+| `CCP_CODEX_ORIGINATOR`   | `codex.originator`  | `claude-code-proxy`                               | Override the `originator` header sent to Codex                                                                                   |
+| `CCP_CODEX_USER_AGENT`   | `codex.userAgent`   | `claude-code-proxy/<version>`                     | Override the `User-Agent` header sent to Codex                                                                                   |
+| `CCP_KIMI_USER_AGENT`    | `kimi.userAgent`    | `KimiCLI/1.37.0`                                  | Override the `User-Agent` header sent to Kimi                                                                                    |
+| `CCP_ORIGINATOR`         | —                   | `claude-code-proxy`                               | Fallback for `CCP_CODEX_ORIGINATOR`                                                                                              |
+| `CCP_USER_AGENT`         | —                   | unset                                             | Fallback for `CCP_CODEX_USER_AGENT` and `CCP_KIMI_USER_AGENT`                                                                    |
 
 A malformed `config.json` is reported on stderr and ignored; defaults are used
 in its place. Invalid types for individual keys are warned and skipped without
