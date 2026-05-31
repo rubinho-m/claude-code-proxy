@@ -130,14 +130,6 @@ export async function codexWebSocketRequest(
     );
     opts.ctx.signal.addEventListener("abort", onAbort, { once: true });
 
-    socket.on("unexpected-response", (_req, res) => {
-      fail(
-        new CodexWebSocketSetupError(
-          `Unexpected Codex WebSocket upgrade response: ${res.statusCode}`,
-          res.statusCode,
-        ),
-      );
-    });
     socket.on("open", () => {
       if (connectTimer) clearTimeout(connectTimer);
       resetIdle();
