@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.0.16 (2026-06-02)
+
+- Codex now uses WebSocket transport by default, improving streaming reliability and setup fallback behavior.
+- Codex sessions can opt in to append-only continuation with `previous_response_id`, reducing repeated upload size on compatible turns.
+- `CCP_TRAFFIC_LOG=1` writes redacted per-request traffic captures to help debug sessions.
+- Codex request logging now includes size summaries and image warnings to make compaction and large requests easier to diagnose.
+- README guidance for Codex context limits and `[1m]` model suffixes is clearer.
+
 ## v0.0.15 (2026-05-30)
 
 - Anthropic requests that omit `stream` now receive JSON responses, fixing Claude Code `/model` validation through the proxy.
