@@ -430,6 +430,53 @@ describe("Cursor protocol client", () => {
 
     expect(closeCalls).toBe(1);
   });
+
+  it("stops Cursor heartbeats when the Run stream closes", async () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    const fakeTimer = Symbol("heartbeat-timer");
+    let heartbeatCleared = false;
+    let resolveClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+    let closeCalls = 0;
+
+    globalThis.setInterval = (() => fakeTimer) as unknown as typeof setInterval;
+    globalThis.clearInterval = ((timer: unknown) => {
+      if (timer === fakeTimer) heartbeatCleared = true;
+    }) as typeof clearInterval;
+
+    try {
+      await runCursorAgent({
+        prompt: "hello",
+        mode: "AGENT_MODE_AGENT",
+        conversationId: "conversation",
+        model: { modelId: "composer-2.5" },
+        auth: { accessToken: "token", source: "test" },
+        ctx: fakeCtx(),
+        proto: fakeProto,
+        openRunStream: async () => ({
+          readable: new ReadableStream<Uint8Array>(),
+          status: Promise.resolve({ status: 200 }),
+          closed,
+          async write() {},
+          close() {
+            closeCalls += 1;
+          },
+        }),
+      });
+
+      resolveClosed();
+      await Promise.resolve();
+
+      expect(heartbeatCleared).toBe(true);
+      expect(closeCalls).toBe(1);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
 });
 
 const fakeProto: CursorProto = {

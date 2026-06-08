@@ -34,6 +34,7 @@ export type CursorRunStreamFactory = (opts: {
 export interface CursorRunStream {
   readable: ReadableStream<Uint8Array>;
   status: Promise<{ status: number; detail?: string }>;
+  closed?: Promise<void>;
   write(frame: Uint8Array): Promise<void>;
   close(): void;
 }
@@ -199,6 +200,7 @@ export async function runCursorAgent(opts: CursorRunOptions): Promise<ReadableSt
     runStream.close();
   };
   opts.ctx.signal.addEventListener("abort", cleanup, { once: true });
+  void runStream.closed?.then(cleanup, cleanup);
 
   const response = await runStream.status;
   if (response.status < 200 || response.status >= 300) {
@@ -287,12 +289,27 @@ export async function openHttp2RunStream(opts: {
   let closed = false;
   let responseStatus = 0;
   let errorDetail = "";
+  let statusSettled = false;
+  let resolveClosed!: () => void;
   let resolveStatus!: (value: { status: number; detail?: string }) => void;
   let rejectStatus!: (err: Error) => void;
+  const closedSignal = new Promise<void>((resolve) => {
+    resolveClosed = resolve;
+  });
   const status = new Promise<{ status: number; detail?: string }>((resolve, reject) => {
     resolveStatus = resolve;
     rejectStatus = reject;
   });
+  const settleStatus = (value: { status: number; detail?: string }) => {
+    if (statusSettled) return;
+    statusSettled = true;
+    resolveStatus(value);
+  };
+  const failStatus = (err: unknown) => {
+    if (statusSettled) return;
+    statusSettled = true;
+    rejectStatus(err instanceof Error ? err : new Error(String(err)));
+  };
 
   const stream = session.request({
     ":method": "POST",
@@ -314,13 +331,17 @@ export async function openHttp2RunStream(opts: {
   stream.once("response", (headers) => {
     responseStatus = Number(headers[":status"] ?? 0);
     if (responseStatus >= 200 && responseStatus < 300) {
-      resolveStatus({ status: responseStatus });
+      settleStatus({ status: responseStatus });
     }
   });
 
   const readable = new ReadableStream<Uint8Array>({
     start(controller) {
       let readableClosed = false;
+      const markClosed = () => {
+        closed = true;
+        resolveClosed();
+      };
       const safeCloseReadable = () => {
         if (readableClosed) return;
         readableClosed = true;
@@ -349,20 +370,30 @@ export async function openHttp2RunStream(opts: {
       });
       stream.once("end", () => {
         if (responseStatus >= 400) {
-          resolveStatus({ status: responseStatus, detail: errorDetail || undefined });
+          settleStatus({ status: responseStatus, detail: errorDetail || undefined });
         }
         safeCloseReadable();
+        markClosed();
         session.close();
       });
       stream.once("error", (err) => {
-        rejectStatus(err instanceof Error ? err : new Error(String(err)));
+        failStatus(err);
         safeErrorReadable(err);
+        markClosed();
         session.destroy();
       });
-      session.once("error", (err) => {
-        rejectStatus(err instanceof Error ? err : new Error(String(err)));
-        safeErrorReadable(err);
+      stream.once("close", () => {
+        if (responseStatus === 0) failStatus(new Error("Cursor HTTP/2 Run stream closed before response headers"));
+        safeCloseReadable();
+        markClosed();
+        session.close();
       });
+      session.once("error", (err) => {
+        failStatus(err);
+        safeErrorReadable(err);
+        markClosed();
+      });
+      session.once("close", markClosed);
     },
     cancel() {
       close();
@@ -372,6 +403,7 @@ export async function openHttp2RunStream(opts: {
   const close = () => {
     if (closed) return;
     closed = true;
+    resolveClosed();
     stream.close();
     session.close();
   };
@@ -379,6 +411,7 @@ export async function openHttp2RunStream(opts: {
   return {
     readable,
     status,
+    closed: closedSignal,
     write(frame: Uint8Array) {
       if (closed || stream.destroyed) {
         return Promise.reject(new Error("Cursor HTTP/2 Run stream is closed"));
