@@ -7,6 +7,8 @@ export interface CursorModelSelection {
   mode: CursorAgentMode;
 }
 
+type AnthropicEffort = NonNullable<AnthropicRequest["output_config"]>["effort"];
+
 const LEGACY_CURSOR_MODELS = [
   "cursor",
   "cursor-agent",
@@ -36,12 +38,13 @@ export function isCursorModel(model: string): boolean {
   return CURSOR_SUPPORTED_MODELS.has(model) || CURSOR_MODEL_PREFIXES.some((p) => model.startsWith(p.prefix));
 }
 
-export function resolveCursorModel(req: Pick<AnthropicRequest, "model" | "metadata">): CursorModelSelection {
+export function resolveCursorModel(req: Pick<AnthropicRequest, "model" | "metadata" | "output_config">): CursorModelSelection {
   let mode = modeFromMetadata(req.metadata);
+  const effort = req.output_config?.effort;
   const prefixed = splitCursorModelPrefix(req.model);
   if (prefixed) {
     return {
-      requestedModel: parseRawCursorModel(prefixed.raw),
+      requestedModel: parseRawCursorModel(applyCursorEffort(prefixed.raw, effort)),
       mode: prefixed.mode ?? mode ?? "AGENT_MODE_AGENT",
     };
   }
@@ -78,6 +81,62 @@ function parseRawCursorModel(raw: string): CursorModelRequest {
     };
   }
   return { modelId: raw };
+}
+
+const EFFORT_SUFFIXES = [
+  "extra-high",
+  "medium",
+  "xhigh",
+  "high",
+  "low",
+  "max",
+  "none",
+] as const;
+
+function applyCursorEffort(raw: string, effort: AnthropicEffort | undefined): string {
+  if (!effort) return raw;
+  const { modelId, fast } = splitFastSuffix(raw);
+  if (hasEffortSuffix(modelId)) return raw;
+
+  const targetBase = findCursorEffortVariant(modelId, effort);
+  if (!targetBase) return raw;
+  if (!fast) return targetBase;
+
+  const fastTarget = `${targetBase}-fast`;
+  return CURSOR_AGENT_MODEL_ID_SET.has(fastTarget) ? fastTarget : `${targetBase}-fast`;
+}
+
+function findCursorEffortVariant(modelId: string, effort: AnthropicEffort): string | undefined {
+  for (const suffix of cursorEffortSuffixCandidates(effort)) {
+    const candidate = `${modelId}-${suffix}`;
+    if (CURSOR_AGENT_MODEL_ID_SET.has(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function cursorEffortSuffixCandidates(effort: AnthropicEffort): readonly string[] {
+  switch (effort) {
+    case "low":
+      return ["low"];
+    case "medium":
+      return ["medium"];
+    case "high":
+      return ["high", "extra-high", "xhigh"];
+    case "max":
+      return ["max", "xhigh", "extra-high", "high"];
+    default:
+      return [];
+  }
+}
+
+function hasEffortSuffix(modelId: string): boolean {
+  return EFFORT_SUFFIXES.some((suffix) => modelId.endsWith(`-${suffix}`));
+}
+
+function splitFastSuffix(raw: string): { modelId: string; fast: boolean } {
+  return raw.endsWith("-fast")
+    ? { modelId: raw.slice(0, -"-fast".length), fast: true }
+    : { modelId: raw, fast: false };
 }
 
 function splitCursorModelPrefix(model: string): { raw: string; mode?: CursorAgentMode } | undefined {

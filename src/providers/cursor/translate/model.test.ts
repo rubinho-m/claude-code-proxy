@@ -45,6 +45,77 @@ describe("Cursor model selection", () => {
     expect(selected.requestedModel).toEqual({ modelId: "gpt-5.5-high-fast" });
   });
 
+  it("maps Claude effort onto Cursor catalog effort variants", () => {
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5",
+      metadata: undefined,
+      output_config: { effort: "low" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-low" });
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5",
+      metadata: undefined,
+      output_config: { effort: "medium" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-medium" });
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5",
+      metadata: undefined,
+      output_config: { effort: "high" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-high" });
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5",
+      metadata: undefined,
+      output_config: { effort: "max" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-extra-high" });
+  });
+
+  it("preserves fast mode when applying Cursor effort variants", () => {
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5-fast",
+      metadata: undefined,
+      output_config: { effort: "high" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-high-fast" });
+  });
+
+  it("maps max effort to Cursor xhigh when max is unavailable", () => {
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.2",
+      metadata: undefined,
+      output_config: { effort: "max" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.2-xhigh" });
+  });
+
+  it("applies effort independently of Cursor mode prefixes", () => {
+    expect(resolveCursorModel({
+      model: "cursor-plan:claude-opus-4-8",
+      metadata: undefined,
+      output_config: { effort: "max" },
+    })).toEqual({
+      mode: "AGENT_MODE_PLAN",
+      requestedModel: { modelId: "claude-opus-4-8-max" },
+    });
+    expect(resolveCursorModel({
+      model: "cursor-ask:claude-opus-4-8-thinking",
+      metadata: undefined,
+      output_config: { effort: "high" },
+    })).toEqual({
+      mode: "AGENT_MODE_ASK",
+      requestedModel: { modelId: "claude-opus-4-8-thinking-high" },
+    });
+  });
+
+  it("does not override explicit Cursor effort ids or models without effort variants", () => {
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5-low",
+      metadata: undefined,
+      output_config: { effort: "max" },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-low" });
+    expect(resolveCursorModel({
+      model: "cursor:gemini-3.1-pro",
+      metadata: undefined,
+      output_config: { effort: "high" },
+    }).requestedModel).toEqual({ modelId: "gemini-3.1-pro" });
+  });
+
   it("supports prefixed plan and ask variants for catalog ids", () => {
     expect(resolveCursorModel({ model: "cursor-plan:gpt-5.5-high", metadata: undefined })).toEqual({
       mode: "AGENT_MODE_PLAN",

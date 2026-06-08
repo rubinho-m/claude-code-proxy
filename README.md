@@ -339,6 +339,15 @@ The catalog advertised by `/v1/models` is generated from
 `cursor-agent --list-models`; unknown future ids are still accepted with
 `cursor:<raw-model>`.
 
+Claude Code's `/effort` setting is mapped onto Cursor catalog ids when the
+selected Cursor model exposes matching effort variants. For example,
+`ANTHROPIC_MODEL=cursor:gpt-5.5` plus `/effort high` requests
+`gpt-5.5-high`, while `/effort max` picks the strongest available catalog
+variant such as `xhigh`, `extra-high`, or `high`. Explicit effort model ids
+such as `cursor:gpt-5.5-low` are respected as-is, `-fast` is preserved when
+available, and models without effort variants (for example
+`cursor:gemini-3.1-pro` in the captured catalog) are left unchanged.
+
 Plan mode can also be selected per request with metadata:
 
 ```json
