@@ -3,12 +3,15 @@ import type { AnthropicRequest, AnthropicToolResultBlock } from "../../anthropic
 import type { Logger } from "../../log.ts";
 import type { RequestContext } from "../types.ts";
 import {
+  appendCursorReadResult,
   appendCursorShellStreamResult,
   appendCursorWriteResult,
+  cursorReadArgs,
   cursorShellStreamArgs,
   cursorWriteArgs,
   decodeCursorStream,
   type CursorAppendMessage,
+  type CursorReadExec,
   type CursorShellStreamExec,
   type CursorStreamEvent,
   type CursorUsage,
@@ -23,6 +26,12 @@ interface PendingToolBase {
   append: CursorAppendMessage;
   resolve(result: NativeToolResult): void;
   result: Promise<NativeToolResult>;
+}
+
+interface PendingReadTool extends PendingToolBase {
+  kind: "Read";
+  exec: CursorReadExec;
+  path: string;
 }
 
 interface PendingShellTool extends PendingToolBase {
@@ -40,7 +49,7 @@ interface PendingWriteTool extends PendingToolBase {
   content: string;
 }
 
-type PendingNativeTool = PendingShellTool | PendingWriteTool;
+type PendingNativeTool = PendingReadTool | PendingShellTool | PendingWriteTool;
 
 interface NativeToolResult {
   content: string;
@@ -63,7 +72,15 @@ interface CursorBridgeState {
 const bridgeStates = new Map<string, CursorBridgeState>();
 
 export function canBridgeCursorNativeTools(body: AnthropicRequest, ctx: RequestContext): boolean {
-  return Boolean(ctx.sessionId && body.stream && body.tools?.some((tool) => tool.name === "Bash" || tool.name === "Write"));
+  return Boolean(
+    ctx.sessionId && body.stream && body.tools?.some((tool) =>
+      tool.name === "Read" || tool.name === "Bash" || tool.name === "Write"
+    ),
+  );
+}
+
+export function canBridgeCursorReadTool(body: AnthropicRequest): boolean {
+  return Boolean(body.tools?.some((tool) => tool.name === "Read"));
 }
 
 export function canBridgeCursorBashTool(body: AnthropicRequest): boolean {
@@ -83,6 +100,7 @@ export function createCursorShellToolBridge(opts: {
   proto?: CursorProto;
   onSession?: (sessionId: string) => void;
 }): {
+  readHandler: (exec: CursorReadExec, append: CursorAppendMessage) => Promise<void>;
   shellStreamHandler: (exec: CursorShellStreamExec, append: CursorAppendMessage) => Promise<void>;
   writeHandler: (exec: CursorWriteExec, append: CursorAppendMessage) => Promise<void>;
   stream: (upstream: ReadableStream<Uint8Array>, signal?: AbortSignal) => ReadableStream<Uint8Array>;
@@ -104,6 +122,45 @@ export function createCursorShellToolBridge(opts: {
   };
 
   return {
+    async readHandler(exec, append) {
+      const { path } = cursorReadArgs(exec);
+      const toolUseId = `call_cursor_${crypto.randomUUID().replace(/-/g, "")}`;
+      let resolve!: (result: NativeToolResult) => void;
+      const result = new Promise<NativeToolResult>((r) => {
+        resolve = r;
+      });
+      const tool: PendingReadTool = {
+        kind: "Read",
+        toolUseId,
+        exec,
+        path,
+        startedAt: Date.now(),
+        append,
+        resolve,
+        result,
+      };
+      opts.traffic?.writeJsonEvent("038-cursor-tool-bridge-pause", {
+        kind: tool.kind,
+        toolUseId,
+        path,
+      });
+      notifyTool(tool);
+      const readResult = await result;
+      await appendCursorReadResult(
+        exec,
+        {
+          success: !readResult.isError,
+          error: readResult.isError ? readResult.content : undefined,
+        },
+        append,
+      );
+      opts.traffic?.writeJsonEvent("038-cursor-tool-bridge-resume", {
+        kind: tool.kind,
+        toolUseId,
+        isError: readResult.isError,
+        contentChars: readResult.content.length,
+      });
+    },
     async shellStreamHandler(exec, append) {
       const { command, workingDirectory, timeoutMs } = cursorShellStreamArgs(exec);
       const toolUseId = `call_cursor_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -451,6 +508,11 @@ function renderToolResultContent(content: AnthropicToolResultBlock["content"]): 
 }
 
 function toolUseInput(tool: PendingNativeTool): string {
+  if (tool.kind === "Read") {
+    return JSON.stringify({
+      file_path: tool.path,
+    });
+  }
   if (tool.kind === "Write") {
     return JSON.stringify({
       file_path: tool.path,

@@ -395,6 +395,197 @@ describe("Cursor provider messages", () => {
     expect(resumeEvents.find((event) => event.event === "message_delta")?.data.delta.stop_reason).toBe("end_turn");
     expect(resumeEvents.at(-1)?.event).toBe("message_stop");
   });
+
+  it("bridges Cursor readArgs before writeArgs so Claude Write can edit existing files", async () => {
+    let serverController!: ReadableStreamDefaultController<Uint8Array>;
+    const sentFrames: Array<Record<string, any>> = [];
+    let writeRequested = false;
+    let finalResponseSent = false;
+    const dir = await mkdtemp(join(tmpdir(), "cursor-read-write-bridge-"));
+    const file = join(dir, "README.md");
+    const originalContent = "# Demo\n\nOld detail.\n";
+    const updatedContent = "# Demo\n\nUpdated detail.\n";
+    await writeFile(file, originalContent, "utf8");
+    const serverReadable = new ReadableStream<Uint8Array>({
+      start(controller) {
+        serverController = controller;
+        queueMicrotask(() => {
+          controller.enqueue(frame({
+            message: {
+              case: "execServerMessage",
+              value: {
+                id: 21,
+                execId: "exec-read",
+                message: { case: "readArgs", value: { path: file } },
+              },
+            },
+          }));
+        });
+      },
+    });
+    const provider = createCursorProvider({
+      loadAuth: async () => ({ accessToken: "token", source: "test" }),
+      runAgent: async (opts) =>
+        runCursorAgent({
+          ...opts,
+          proto: fakeProto,
+          openRunStream: async () => ({
+            readable: serverReadable,
+            status: Promise.resolve({ status: 200 }),
+            async write(frameBytes) {
+              const message = decodeFrameJson(frameBytes) as Record<string, any>;
+              sentFrames.push(message);
+              if (message.execClientMessage?.readResult?.success && !writeRequested) {
+                writeRequested = true;
+                serverController.enqueue(frame({
+                  message: {
+                    case: "execServerMessage",
+                    value: {
+                      id: 22,
+                      execId: "exec-write",
+                      message: {
+                        case: "writeArgs",
+                        value: {
+                          path: file,
+                          fileText: updatedContent,
+                          returnFileContentAfterWrite: true,
+                        },
+                      },
+                    },
+                  },
+                }));
+              }
+              if (message.execClientMessage?.writeResult?.success && !finalResponseSent) {
+                finalResponseSent = true;
+                serverController.enqueue(frame({
+                  interactionUpdate: { textDelta: { text: "edited existing file" } },
+                }));
+                serverController.enqueue(frame({
+                  interactionUpdate: { turnEnded: { inputTokens: "8", outputTokens: "5" } },
+                }));
+                serverController.close();
+              }
+            },
+            close() {},
+          }),
+        }),
+      proto: fakeProto,
+    });
+
+    const initial = await provider.handleMessages(
+      {
+        model: "cursor",
+        stream: true,
+        tools: [
+          { name: "Read", input_schema: { type: "object" } },
+          { name: "Write", input_schema: { type: "object" } },
+        ],
+        messages: [{ role: "user", content: "edit readme" }],
+      },
+      fakeCtx(),
+    );
+    const initialEvents = await collectSse(initial);
+    const readToolStart = initialEvents.find((event) => event.event === "content_block_start"
+      && event.data.content_block?.type === "tool_use");
+    const readToolInput = initialEvents.find((event) => event.event === "content_block_delta"
+      && event.data.delta?.type === "input_json_delta");
+
+    expect(readToolStart?.data.content_block.name).toBe("Read");
+    expect(JSON.parse(readToolInput?.data.delta.partial_json)).toEqual({ file_path: file });
+    expect(sentFrames.some((message) => message.execClientMessage?.readResult)).toBe(false);
+
+    const afterRead = await provider.handleMessages(
+      {
+        model: "cursor",
+        stream: true,
+        messages: [
+          {
+            role: "assistant",
+            content: [{
+              type: "tool_use",
+              id: readToolStart!.data.content_block.id,
+              name: "Read",
+              input: { file_path: file },
+            }],
+          },
+          {
+            role: "user",
+            content: [{
+              type: "tool_result",
+              tool_use_id: readToolStart!.data.content_block.id,
+              content: originalContent,
+              is_error: false,
+            }],
+          },
+        ],
+      },
+      fakeCtx(),
+    );
+    const afterReadEvents = await collectSse(afterRead);
+    const readResult = sentFrames.find((message) => message.execClientMessage?.readResult)
+      ?.execClientMessage.readResult.success;
+    const writeToolStart = afterReadEvents.find((event) => event.event === "content_block_start"
+      && event.data.content_block?.type === "tool_use");
+    const writeToolInput = afterReadEvents.find((event) => event.event === "content_block_delta"
+      && event.data.delta?.type === "input_json_delta");
+
+    expect(readResult).toEqual({
+      path: file,
+      content: originalContent,
+      totalLines: 4,
+      fileSize: "20",
+    });
+    expect(writeToolStart?.data.content_block.name).toBe("Write");
+    expect(JSON.parse(writeToolInput?.data.delta.partial_json)).toEqual({
+      file_path: file,
+      content: updatedContent,
+    });
+
+    await writeFile(file, updatedContent, "utf8");
+    const afterWrite = await provider.handleMessages(
+      {
+        model: "cursor",
+        stream: true,
+        messages: [
+          {
+            role: "assistant",
+            content: [{
+              type: "tool_use",
+              id: writeToolStart!.data.content_block.id,
+              name: "Write",
+              input: { file_path: file, content: updatedContent },
+            }],
+          },
+          {
+            role: "user",
+            content: [{
+              type: "tool_result",
+              tool_use_id: writeToolStart!.data.content_block.id,
+              content: `Wrote 3 lines to ${file}`,
+              is_error: false,
+            }],
+          },
+        ],
+      },
+      fakeCtx(),
+    );
+    const afterWriteEvents = await collectSse(afterWrite);
+    const writeResult = sentFrames.find((message) => message.execClientMessage?.writeResult)
+      ?.execClientMessage.writeResult.success;
+
+    expect(writeResult).toEqual({
+      path: file,
+      linesCreated: 4,
+      fileSize: 24,
+      fileContentAfterWrite: updatedContent,
+    });
+    expect(afterWriteEvents.find((event) => event.event === "content_block_delta")?.data.delta.text).toBe(
+      "edited existing file",
+    );
+    expect(afterWriteEvents.find((event) => event.event === "message_delta")?.data.delta.stop_reason).toBe(
+      "end_turn",
+    );
+  });
 });
 
 function fakeCtx(): RequestContext {

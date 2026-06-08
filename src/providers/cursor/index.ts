@@ -28,6 +28,7 @@ import {
 import {
   canBridgeCursorBashTool,
   canBridgeCursorNativeTools,
+  canBridgeCursorReadTool,
   canBridgeCursorWriteTool,
   createCursorShellToolBridge,
   resumeCursorShellToolBridge,
@@ -102,6 +103,7 @@ async function handleMessages(
       onSession,
     })
     : undefined;
+  const bridgeRead = canBridgeCursorReadTool(body);
   const bridgeBash = canBridgeCursorBashTool(body);
   const bridgeWrite = canBridgeCursorWriteTool(body);
 
@@ -114,6 +116,7 @@ async function handleMessages(
       model: selection.requestedModel,
       auth,
       ctx,
+      readHandler: bridgeRead ? nativeToolBridge?.readHandler : undefined,
       shellStreamHandler: bridgeBash ? nativeToolBridge?.shellStreamHandler : undefined,
       writeHandler: bridgeWrite ? nativeToolBridge?.writeHandler : undefined,
     });

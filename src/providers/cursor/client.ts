@@ -18,6 +18,7 @@ export interface CursorRunOptions {
   ctx: RequestContext;
   proto?: CursorProto;
   openRunStream?: CursorRunStreamFactory;
+  readHandler?: CursorReadHandler;
   shellStreamHandler?: CursorShellStreamHandler;
   writeHandler?: CursorWriteHandler;
 }
@@ -52,6 +53,22 @@ export interface CursorShellStreamResult {
 }
 
 export type CursorAppendMessage = (messageJson: unknown) => Promise<void>;
+
+export interface CursorReadExec {
+  id?: number;
+  execId?: string;
+  message?: { case?: string; value?: unknown };
+}
+
+export interface CursorReadToolResult {
+  success: boolean;
+  error?: string;
+}
+
+export type CursorReadHandler = (
+  exec: CursorReadExec,
+  append: CursorAppendMessage,
+) => Promise<void>;
 
 export type CursorShellStreamHandler = (
   exec: CursorShellStreamExec,
@@ -191,18 +208,27 @@ export async function runCursorAgent(opts: CursorRunOptions): Promise<ReadableSt
       async transform(chunk, controller) {
         opts.ctx.traffic?.writeBytes("030-cursor-run-response-chunk", chunk);
         controller.enqueue(chunk);
-        await processServerControlFrames(chunk, proto, append, opts.ctx, opts.shellStreamHandler, opts.writeHandler, (text) => {
-          if (!text || controller.desiredSize === null) return;
-          try {
-            opts.ctx.traffic?.writeJsonEvent("038-cursor-tool-trace", { text });
-            const messageBytes = proto.AgentServerMessage.fromJson({
-              interactionUpdate: { textDelta: { text } },
-            }).toBinary();
-            controller.enqueue(encodeConnectFrame(messageBytes));
-          } catch {
-            // Downstream cancellation can close the transformed stream while a Cursor exec is still finishing.
-          }
-        });
+        await processServerControlFrames(
+          chunk,
+          proto,
+          append,
+          opts.ctx,
+          opts.readHandler,
+          opts.shellStreamHandler,
+          opts.writeHandler,
+          (text) => {
+            if (!text || controller.desiredSize === null) return;
+            try {
+              opts.ctx.traffic?.writeJsonEvent("038-cursor-tool-trace", { text });
+              const messageBytes = proto.AgentServerMessage.fromJson({
+                interactionUpdate: { textDelta: { text } },
+              }).toBinary();
+              controller.enqueue(encodeConnectFrame(messageBytes));
+            } catch {
+              // Downstream cancellation can close the transformed stream while a Cursor exec is still finishing.
+            }
+          },
+        );
       },
       flush() {
         cleanup();
@@ -370,6 +396,7 @@ async function processServerControlFrames(
   proto: CursorProto,
   append: (messageJson: unknown) => Promise<void>,
   ctx?: RequestContext,
+  readHandler?: CursorReadHandler,
   shellStreamHandler?: CursorShellStreamHandler,
   writeHandler?: CursorWriteHandler,
   emitTrace?: (text: string) => void,
@@ -404,8 +431,12 @@ async function processServerControlFrames(
         await append({ execClientMessage: buildRequestContextResult(oneof.value) });
         await append({ execClientControlMessage: { streamClose: {} } });
       } else if (oneof.value?.message?.case === "readArgs") {
-        await append({ execClientMessage: await buildReadResult(oneof.value) });
-        await append({ execClientControlMessage: { streamClose: { id: oneof.value.id } } });
+        if (readHandler) {
+          await readHandler(oneof.value, append);
+        } else {
+          await append({ execClientMessage: await buildReadResult(oneof.value) });
+          await append({ execClientControlMessage: { streamClose: { id: oneof.value.id } } });
+        }
       } else if (oneof.value?.message?.case === "writeArgs") {
         if (writeHandler) {
           await writeHandler(oneof.value, append);
@@ -450,6 +481,14 @@ export function cursorShellStreamArgs(exec: CursorShellStreamExec): {
     : process.cwd();
   const timeoutMs = typeof args?.timeout === "number" && args.timeout > 0 ? args.timeout : 30_000;
   return { command, workingDirectory, timeoutMs };
+}
+
+export function cursorReadArgs(exec: CursorReadExec): {
+  path: string;
+} {
+  const args = asRecord(exec.message?.value);
+  const path = typeof args?.path === "string" ? args.path : "";
+  return { path };
 }
 
 export function cursorWriteArgs(exec: CursorWriteExec): {
@@ -550,6 +589,37 @@ function writeContentFromArgs(args: Record<string, unknown> | undefined): string
 
 function lineCount(content: string): number {
   return content.length === 0 ? 0 : content.split("\n").length;
+}
+
+export async function appendCursorReadResult(
+  exec: CursorReadExec,
+  result: CursorReadToolResult,
+  append: CursorAppendMessage,
+): Promise<void> {
+  await append({ execClientMessage: await buildReadResultFromTool(exec, result) });
+  await append({ execClientControlMessage: { streamClose: { id: exec.id } } });
+}
+
+async function buildReadResultFromTool(
+  exec: CursorReadExec,
+  result: CursorReadToolResult,
+): Promise<Record<string, unknown>> {
+  if (result.success) return buildReadResult(exec);
+
+  const { path } = cursorReadArgs(exec);
+  const content = result.error || `Error reading ${path}`;
+  return {
+    ...(typeof exec.id === "number" ? { id: exec.id } : {}),
+    ...(typeof exec.execId === "string" ? { execId: exec.execId } : {}),
+    readResult: {
+      success: {
+        path,
+        content,
+        totalLines: lineCount(content),
+        fileSize: String(Buffer.byteLength(content, "utf8")),
+      },
+    },
+  };
 }
 
 export async function appendCursorWriteResult(
