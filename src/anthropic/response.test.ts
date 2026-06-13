@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   anthropicErrorBody,
+  expectSseHeaders,
   jsonError,
   jsonResponse,
   sseResponse,
@@ -54,9 +55,7 @@ describe("sseResponse", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("text/event-stream");
-    expect(response.headers.get("cache-control")).toBe("no-cache");
-    expect(response.headers.get("connection")).toBe("keep-alive");
+    expectSseHeaders(response);
     expect(response.headers.get("x-upstream")).toBe("origin");
   });
 });

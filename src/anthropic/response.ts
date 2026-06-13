@@ -1,3 +1,5 @@
+import { expect } from "bun:test";
+
 type ResponseBody = ConstructorParameters<typeof Response>[0];
 type ResponseHeaders = ResponseInit["headers"];
 type HeadersConstructorInput = ConstructorParameters<typeof Headers>[0];
@@ -61,4 +63,10 @@ function sseHeaders(headers: ResponseHeaders): Headers {
   out.set("cache-control", "no-cache");
   out.set("connection", "keep-alive");
   return out;
+}
+
+export function expectSseHeaders(response: Response): void {
+  expect(response.headers.get("content-type")).toBe("text/event-stream");
+  expect(response.headers.get("cache-control")).toBe("no-cache");
+  expect(response.headers.get("connection")).toBe("keep-alive");
 }

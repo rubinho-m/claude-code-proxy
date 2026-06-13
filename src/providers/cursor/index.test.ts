@@ -15,6 +15,7 @@ import {
 import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expectSseHeaders } from "../../anthropic/response.ts";
 
 const originalToken = process.env.CCP_CURSOR_AUTH_TOKEN;
 
@@ -108,6 +109,21 @@ function expectMessageStop(events: readonly CursorSseEvent[]) {
   expect(events.at(-1)?.event).toBe("message_stop");
 }
 
+function enqueueFinalAssistantResponse(
+  serverController: ReadableStreamDefaultController<Uint8Array>,
+  text: string,
+  inputTokens: string,
+  outputTokens: string,
+) {
+  serverController.enqueue(frame({
+    interactionUpdate: { textDelta: { text } },
+  }));
+  serverController.enqueue(frame({
+    interactionUpdate: { turnEnded: { inputTokens, outputTokens } },
+  }));
+  serverController.close();
+}
+
 describe("Cursor provider auth errors", () => {
   it("surfaces expired auth before calling Cursor", async () => {
     process.env.CCP_CURSOR_AUTH_TOKEN = jwt({ exp: 1 });
@@ -173,9 +189,7 @@ describe("Cursor provider messages", () => {
     );
     const events = await collectCursorSse(response);
 
-    expect(response.headers.get("content-type")).toBe("text/event-stream");
-    expect(response.headers.get("cache-control")).toBe("no-cache");
-    expect(response.headers.get("connection")).toBe("keep-alive");
+    expectSseHeaders(response);
     expect(events.map((event) => event.event)).toContain("message_start");
     expect(getTextDeltaEvent(events)?.data.delta.text).toBe("streamed");
     expectMessageStop(events);
@@ -226,13 +240,7 @@ describe("Cursor provider messages", () => {
       (message, serverController) => {
         if (message.execClientMessage?.shellStream?.exit && !finalResponseSent) {
           finalResponseSent = true;
-          serverController.enqueue(frame({
-            interactionUpdate: { textDelta: { text: "resumed after native shell" } },
-          }));
-          serverController.enqueue(frame({
-            interactionUpdate: { turnEnded: { inputTokens: "4", outputTokens: "3" } },
-          }));
-          serverController.close();
+          enqueueFinalAssistantResponse(serverController, "resumed after native shell", "4", "3");
         }
       },
     );
@@ -324,13 +332,7 @@ describe("Cursor provider messages", () => {
       (message, serverController) => {
         if (message.execClientMessage?.shellStream?.exit && !finalResponseSent) {
           finalResponseSent = true;
-          serverController.enqueue(frame({
-            interactionUpdate: { textDelta: { text: "shell was denied" } },
-          }));
-          serverController.enqueue(frame({
-            interactionUpdate: { turnEnded: { inputTokens: "4", outputTokens: "3" } },
-          }));
-          serverController.close();
+          enqueueFinalAssistantResponse(serverController, "shell was denied", "4", "3");
         }
       },
     );
@@ -386,13 +388,7 @@ describe("Cursor provider messages", () => {
       (message, serverController) => {
         if (message.execClientMessage?.writeResult?.success && !finalResponseSent) {
           finalResponseSent = true;
-          serverController.enqueue(frame({
-            interactionUpdate: { textDelta: { text: "resumed after native write" } },
-          }));
-          serverController.enqueue(frame({
-            interactionUpdate: { turnEnded: { inputTokens: "5", outputTokens: "4" } },
-          }));
-          serverController.close();
+          enqueueFinalAssistantResponse(serverController, "resumed after native write", "5", "4");
         }
       },
     );
@@ -507,13 +503,7 @@ describe("Cursor provider messages", () => {
         }
         if (message.execClientMessage?.writeResult?.success && !finalResponseSent) {
           finalResponseSent = true;
-          serverController.enqueue(frame({
-            interactionUpdate: { textDelta: { text: "edited existing file" } },
-          }));
-          serverController.enqueue(frame({
-            interactionUpdate: { turnEnded: { inputTokens: "8", outputTokens: "5" } },
-          }));
-          serverController.close();
+          enqueueFinalAssistantResponse(serverController, "edited existing file", "8", "5");
         }
       },
     );
