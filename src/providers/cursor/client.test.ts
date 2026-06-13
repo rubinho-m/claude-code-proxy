@@ -346,11 +346,7 @@ describe("Cursor protocol client", () => {
   it("closes the Cursor run stream when the downstream consumer cancels", async () => {
     let closeCalls = 0;
     const upstream = await runCursorAgent({
-      prompt: "hello",
-      mode: "AGENT_MODE_AGENT",
-      conversationId: "conversation",
-      model: { modelId: "composer-2.5" },
-      auth: { accessToken: "token", source: "test" },
+      ...buildRunOptions(),
       ctx: fakeCursorCtx(),
       proto: fakeProto,
       openRunStream: async () => ({
@@ -386,11 +382,7 @@ describe("Cursor protocol client", () => {
 
     try {
       await runCursorAgent({
-        prompt: "hello",
-        mode: "AGENT_MODE_AGENT",
-        conversationId: "conversation",
-        model: { modelId: "composer-2.5" },
-        auth: { accessToken: "token", source: "test" },
+        ...buildRunOptions(),
         ctx: fakeCursorCtx(),
         proto: fakeProto,
         openRunStream: async () => ({
