@@ -33,7 +33,12 @@ export interface ResponsesRequest {
   instructions?: string;
   input: ResponsesInputItem[];
   tools?: ResponsesTool[];
-  tool_choice?: "auto" | "none" | "required" | { type: "function"; name: string };
+  tool_choice?:
+    | "auto"
+    | "none"
+    | "required"
+    | { type: "function"; name: string }
+    | { type: "web_search" };
   parallel_tool_calls?: boolean;
   reasoning?: { effort?: Effort; summary?: unknown };
   store: false;
@@ -194,7 +199,7 @@ export function translateRequest(
     store: false,
     stream: true,
     parallel_tool_calls: true,
-    tool_choice: mapToolChoice(req.tool_choice),
+    tool_choice: mapToolChoice(req.tool_choice, req.tools),
     text,
   };
   if (instructions) out.instructions = instructions;
@@ -211,9 +216,13 @@ export function translateRequest(
   return out;
 }
 
-function mapToolChoice(choice: AnthropicRequest["tool_choice"]): ResponsesRequest["tool_choice"] {
+function mapToolChoice(
+  choice: AnthropicRequest["tool_choice"],
+  tools: AnthropicRequest["tools"],
+): ResponsesRequest["tool_choice"] {
   const mapped = mapAnthropicToolChoice(choice);
   if (mapped === "auto" || mapped === "none" || mapped === "required") return mapped;
+  if (isForcedHostedWebSearchChoice(choice, tools)) return { type: "web_search" };
   return { type: "function", name: mapped.name };
 }
 
@@ -280,6 +289,16 @@ function buildInput(messages: AnthropicMessage[]): ResponsesInputItem[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
+}
+
+function isForcedHostedWebSearchChoice(
+  choice: AnthropicRequest["tool_choice"],
+  tools: AnthropicRequest["tools"],
+): boolean {
+  if (choice?.type !== "tool" || !choice.name) return false;
+  return (
+    tools?.some((tool) => tool.type === "web_search_20250305" && tool.name === choice.name) ?? false
+  );
 }
 
 function toResponsesTool(tool: AnthropicTool): ResponsesTool {

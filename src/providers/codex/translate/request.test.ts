@@ -58,6 +58,28 @@ describe("translateRequest", () => {
     ]);
   });
 
+  it("maps forced Anthropic web search choice to Codex hosted search choice", () => {
+    const translated = translateRequest({
+      ...baseRequest,
+      tools: [
+        {
+          type: "web_search_20250305",
+          name: "web_search",
+        },
+      ],
+      tool_choice: { type: "tool", name: "web_search" },
+    });
+
+    expect(translated.tools).toEqual([
+      {
+        type: "web_search",
+        external_web_access: false,
+        search_content_types: ["text", "image"],
+      },
+    ]);
+    expect(translated.tool_choice).toEqual({ type: "web_search" });
+  });
+
   it("preserves non-empty Anthropic web search domain filters", () => {
     const translated = translateRequest({
       ...baseRequest,

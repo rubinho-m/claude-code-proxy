@@ -47,9 +47,9 @@ export function countTranslatedTokens(
 
   if (typeof req.tool_choice === "string") {
     total += encode(req.tool_choice).length;
-  } else if (req.tool_choice?.type === "function") {
+  } else if (req.tool_choice) {
     total += encode(req.tool_choice.type).length;
-    total += encode(req.tool_choice.name).length;
+    if ("name" in req.tool_choice) total += encode(req.tool_choice.name).length;
   }
 
   total += req.input.length * 4;

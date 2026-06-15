@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Codex forced hosted web search requests now map to Codex's hosted web search tool choice instead of a function tool choice, fixing repeated upstream `Tool choice 'function' not found in 'tools' parameter.` errors. ([#10](https://github.com/raine/claude-code-proxy/issues/10))
+
 ## v0.0.20 (2026-06-15)
 
 - Cursor's generic `cursor`, `cursor-agent`, `cursor-plan`, and `cursor-ask` aliases now use Cursor default model selection instead of forcing Composer 2.5 fast mode.
