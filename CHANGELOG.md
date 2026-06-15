@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Cursor's generic `cursor`, `cursor-agent`, `cursor-plan`, and `cursor-ask` aliases now use Cursor default model selection instead of forcing Composer 2.5 fast mode.
+
 ## v0.0.19 (2026-06-14)
 
 - Codex now supports Claude Code hosted web search through Codex's native web search, including domain filters and search usage accounting. ([#10](https://github.com/raine/claude-code-proxy/issues/10))

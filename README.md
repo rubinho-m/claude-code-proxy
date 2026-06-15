@@ -329,14 +329,14 @@ primary HTTP/2 stream.
 
 Supported proxy model ids:
 
-- `cursor`, `cursor-agent`, `cursor-composer`, `cursor-composer-fast` — Cursor
-  Composer 2.5 fast mode
-- `cursor-plan` — same model with Cursor `AGENT_MODE_PLAN`
-- `cursor-ask` — same model with Cursor `AGENT_MODE_ASK`
-- `composer-2.5`, `composer-2.5-fast`
-- `cursor:<model-id>` — force any Cursor Agent model id through Cursor
-- `cursor-plan:<model-id>` — same model with Cursor `AGENT_MODE_PLAN`
-- `cursor-ask:<model-id>` — same model with Cursor `AGENT_MODE_ASK`
+- `cursor`, `cursor-agent`: Cursor default model selection
+- `cursor-plan`: Cursor default model selection with `AGENT_MODE_PLAN`
+- `cursor-ask`: Cursor default model selection with `AGENT_MODE_ASK`
+- `cursor-composer`, `composer-2.5`: Cursor Composer 2.5
+- `cursor-composer-fast`, `composer-2.5-fast`: Cursor Composer 2.5 fast mode
+- `cursor:<model-id>`: force any Cursor Agent model id through Cursor
+- `cursor-plan:<model-id>`: same model with Cursor `AGENT_MODE_PLAN`
+- `cursor-ask:<model-id>`: same model with Cursor `AGENT_MODE_ASK`
 
 The prefixed forms are the recommended way to select Cursor's full model
 catalog. They avoid collisions with other proxy providers, for example

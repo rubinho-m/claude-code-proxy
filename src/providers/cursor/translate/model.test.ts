@@ -3,23 +3,40 @@ import { CURSOR_AGENT_MODEL_IDS } from "./catalog.ts";
 import { CURSOR_SUPPORTED_MODELS, isCursorModel, resolveCursorModel } from "./model.ts";
 
 describe("Cursor model selection", () => {
-  it("maps cursor aliases to composer fast", () => {
-    const selected = resolveCursorModel({ model: "cursor", metadata: undefined });
+  it("maps cursor aliases to Cursor default", () => {
+    expect(resolveCursorModel({ model: "cursor", metadata: undefined })).toEqual({
+      mode: "AGENT_MODE_AGENT",
+      requestedModel: { modelId: "default" },
+    });
+    expect(resolveCursorModel({ model: "cursor-agent", metadata: undefined })).toEqual({
+      mode: "AGENT_MODE_AGENT",
+      requestedModel: { modelId: "default" },
+    });
+  });
 
-    expect(selected.mode).toBe("AGENT_MODE_AGENT");
-    expect(selected.requestedModel).toEqual({
-      modelId: "composer-2.5",
-      parameters: [{ id: "fast", value: "true" }],
+  it("maps composer aliases explicitly", () => {
+    expect(resolveCursorModel({ model: "cursor-composer", metadata: undefined })).toEqual({
+      mode: "AGENT_MODE_AGENT",
+      requestedModel: { modelId: "composer-2.5" },
+    });
+    expect(resolveCursorModel({ model: "cursor-composer-fast", metadata: undefined })).toEqual({
+      mode: "AGENT_MODE_AGENT",
+      requestedModel: {
+        modelId: "composer-2.5",
+        parameters: [{ id: "fast", value: "true" }],
+      },
     });
   });
 
   it("selects plan and ask modes from aliases", () => {
-    expect(resolveCursorModel({ model: "cursor-plan", metadata: undefined }).mode).toBe(
-      "AGENT_MODE_PLAN",
-    );
-    expect(resolveCursorModel({ model: "cursor-ask", metadata: undefined }).mode).toBe(
-      "AGENT_MODE_ASK",
-    );
+    expect(resolveCursorModel({ model: "cursor-plan", metadata: undefined })).toEqual({
+      mode: "AGENT_MODE_PLAN",
+      requestedModel: { modelId: "default" },
+    });
+    expect(resolveCursorModel({ model: "cursor-ask", metadata: undefined })).toEqual({
+      mode: "AGENT_MODE_ASK",
+      requestedModel: { modelId: "default" },
+    });
   });
 
   it("supports raw cursor model prefix", () => {

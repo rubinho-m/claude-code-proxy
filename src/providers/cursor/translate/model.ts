@@ -56,17 +56,18 @@ export function resolveCursorModel(req: Pick<AnthropicRequest, "model" | "metada
   switch (req.model) {
     case "cursor":
     case "cursor-agent":
-    case "cursor-composer":
-    case "cursor-composer-fast":
     case "cursor-plan":
     case "cursor-ask":
+      return { requestedModel: { modelId: "default" }, mode };
+    case "cursor-composer":
+    case "composer-2.5":
+      return { requestedModel: { modelId: "composer-2.5" }, mode };
+    case "cursor-composer-fast":
     case "composer-2.5-fast":
       return {
         requestedModel: { modelId: "composer-2.5", parameters: [{ id: "fast", value: "true" }] },
         mode,
       };
-    case "composer-2.5":
-      return { requestedModel: { modelId: "composer-2.5" }, mode };
     default:
       return { requestedModel: { modelId: req.model }, mode };
   }
