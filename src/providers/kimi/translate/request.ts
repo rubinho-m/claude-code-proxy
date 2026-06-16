@@ -1,10 +1,10 @@
 import type {
   AnthropicContentBlock,
+  AnthropicEffort,
   AnthropicRequest,
   AnthropicTool,
   AnthropicToolResultContentBlock,
-} from "../../../anthropic/schema.ts";
-import {
+} from "../../../anthropic/schema.ts";import {
   assertValidEffort,
   mapToolChoice as mapAnthropicToolChoice,
   flattenSystemText,
@@ -111,13 +111,10 @@ function clampMaxTokens(requested: number | undefined): number {
   return Math.min(requested, DEFAULT_MAX_TOKENS);
 }
 
-// Kimi's reasoning_effort is capped at "high"; collapse the proxy's "max"
-// to "high" since Kimi has no stronger tier, and default to "medium" when no
-// effort is requested.
-function mapReasoningEffort(
-  effort: NonNullable<AnthropicRequest["output_config"]>["effort"],
-): "low" | "medium" | "high" {
-  if (effort === "max") return "high";
+// Kimi's reasoning_effort is capped at "high"; collapse stronger Claude Code
+// efforts to "high" since Kimi has no stronger tier, and default to "medium".
+function mapReasoningEffort(effort: AnthropicEffort | undefined): "low" | "medium" | "high" {
+  if (effort === "max" || effort === "xhigh" || effort === "ultracode") return "high";
   return effort ?? "medium";
 }
 

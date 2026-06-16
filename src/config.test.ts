@@ -198,6 +198,12 @@ describe("env overrides file", () => {
     expect(codexServiceTier()).toBe("fast");
   });
 
+  it("CCP_CODEX_EFFORT env wins over config", () => {
+    writeFileSync(configPath, JSON.stringify({ codex: { effort: "medium" } }));
+    setEnv({ CCP_CODEX_EFFORT: "ultracode" });
+    expect(codexEffort()).toBe("ultracode");
+  });
+
   it("CCP_CODEX_BASE_URL env wins over config", () => {
     writeFileSync(configPath, JSON.stringify({ codex: { baseUrl: "http://127.0.0.1:2455/file" } }));
     setEnv({ CCP_CODEX_BASE_URL: "http://127.0.0.1:2455/env" });
@@ -281,6 +287,12 @@ describe("empty-string semantics", () => {
     writeFileSync(configPath, JSON.stringify({ codex: { serviceTier: "flex" } }));
     setEnv({ CCP_CODEX_SERVICE_TIER: "" });
     expect(codexServiceTier()).toBe("flex");
+  });
+
+  it("empty CCP_CODEX_EFFORT env falls through to file value", () => {
+    writeFileSync(configPath, JSON.stringify({ codex: { effort: "max" } }));
+    setEnv({ CCP_CODEX_EFFORT: "" });
+    expect(codexEffort()).toBe("max");
   });
 
   it("empty CCP_ALIAS_PROVIDER env falls through to file value", () => {

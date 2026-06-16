@@ -1,5 +1,6 @@
 import type {
   AnthropicContentBlock,
+  AnthropicEffort,
   AnthropicMessage,
   AnthropicRequest,
   AnthropicTool,
@@ -121,14 +122,12 @@ export interface TranslateOptions {
   serviceTier?: ServiceTier;
 }
 
-const VALID_EFFORTS = new Set<Effort>(["none", "low", "medium", "high", "xhigh"]);
+const VALID_EFFORT_OVERRIDES = new Set(["none", "low", "medium", "high", "xhigh", "max", "ultracode"]);
 
 const VALID_SERVICE_TIERS = new Set(["fast", "priority", "flex"]);
 
-function toCodexEffort(
-  effort: NonNullable<AnthropicRequest["output_config"]>["effort"],
-): Effort | undefined {
-  if (effort === "max") return "xhigh";
+function toCodexEffort(effort: AnthropicEffort | undefined): Effort | undefined {
+  if (effort === "max" || effort === "xhigh" || effort === "ultracode") return "xhigh";
   return effort;
 }
 
@@ -137,12 +136,12 @@ function resolveEffort(effort?: Effort): Effort | undefined {
   if (override === undefined) {
     return effort;
   }
-  if (!VALID_EFFORTS.has(override as Effort)) {
+  if (!VALID_EFFORT_OVERRIDES.has(override)) {
     throw new Error(
-      `Invalid effort override: "${override}". Must be one of: ${Array.from(VALID_EFFORTS).join(", ")}`,
+      `Invalid effort override: "${override}". Must be one of: ${Array.from(VALID_EFFORT_OVERRIDES).join(", ")}`,
     );
   }
-  return override as Effort;
+  return toCodexEffort(override as AnthropicEffort) ?? (override as Effort);
 }
 
 function normalizeServiceTier(tier: string): ServiceTier {

@@ -7,9 +7,71 @@ Agent**.
 
 <img src="meta/claude-code-screenshot.webp" alt="Claude Code running through claude-code-proxy" width="630" />
 
-[Quick start](#quick-start) · [Providers](#providers) ·
+[What this fork does](#what-this-fork-does) · [Quick start](#quick-start) ·
+[Build this fork](#build-this-fork) · [Providers](#providers) ·
 [How it works](#how-it-works) · [Configuration](#configuration) ·
 [Limitations](#limitations)
+
+## What this fork does
+
+This fork keeps the upstream proxy shape: Claude Code talks to a local
+Anthropic-compatible endpoint, and the proxy translates requests to Codex, Kimi,
+or Cursor Agent based on `ANTHROPIC_MODEL`.
+
+Compared with the released upstream build, this fork adds compatibility with
+Claude Code's modern effort controls:
+
+- accepts `output_config.effort` values `xhigh`, `max`, and `ultracode`;
+- sends Codex `max`, `xhigh`, and `ultracode` as upstream
+  `reasoning.effort: "xhigh"`;
+- accepts `CCP_CODEX_EFFORT=max` and `CCP_CODEX_EFFORT=ultracode` as aliases for
+  `xhigh`;
+- maps Kimi's stronger Claude Code efforts to Kimi's highest supported
+  `reasoning_effort: "high"`;
+- maps Cursor `xhigh`, `max`, and `ultracode` to the strongest matching catalog
+  model variant.
+
+`ultracode` dynamic workflow orchestration remains a Claude Code client feature;
+this proxy does not emulate workflows. It only accepts and forwards the request
+fields that reach the proxy.
+
+## Build this fork
+
+Use this when you want the current checkout rather than the latest released
+Homebrew/script binary.
+
+```sh
+bun install
+bun test
+bun run typecheck
+bun build ./src/cli.ts --compile --outfile ./dist/claude-code-proxy
+```
+
+Run the built binary directly:
+
+```sh
+./dist/claude-code-proxy serve
+```
+
+Or put it on your `PATH`:
+
+```sh
+mkdir -p ~/.local/bin
+cp ./dist/claude-code-proxy ~/.local/bin/claude-code-proxy
+claude-code-proxy serve
+```
+
+Build for a specific platform when preparing artifacts:
+
+```sh
+bun build ./src/cli.ts --compile --target=bun-darwin-arm64 --outfile ./dist/claude-code-proxy-darwin-arm64
+bun build ./src/cli.ts --compile --target=bun-darwin-x64 --outfile ./dist/claude-code-proxy-darwin-x64
+bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile ./dist/claude-code-proxy-linux-x64
+bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile ./dist/claude-code-proxy-windows-x64.exe
+```
+
+Auth, config, logs, and environment variables are the same for source and
+compiled runs. The compiled binary does not require `bun` at runtime.
 
 ## Why?
 
@@ -262,9 +324,10 @@ model `gpt-5.5` with `service_tier: "priority"`. An explicit
 
 Reasoning effort: Claude Code's `output_config.effort` value (the one you see in
 the UI as `◐ medium · /effort`) is forwarded as Codex `reasoning.effort` (`low`
-/ `medium` / `high` / `xhigh`). Claude Code's `max` value is sent upstream as
-`xhigh`. An explicit `codex.effort` / `CCP_CODEX_EFFORT` override still takes
-precedence and can also force `none`.
+/ `medium` / `high` / `xhigh`). Claude Code's stronger modern values (`max`,
+`xhigh`, `ultracode`) are sent upstream as `xhigh`. An explicit `codex.effort` /
+`CCP_CODEX_EFFORT` override still takes precedence and can also force `none`;
+user-facing aliases `max` and `ultracode` are normalized to `xhigh`.
 
 Claude Code's hosted `web_search_20250305` tool is translated to Codex's native
 Responses `web_search` tool, including non-empty domain filters. Codex hosted
@@ -307,7 +370,8 @@ is **Kimi-k2.6**, 256k context, supports reasoning + image input + video input).
 
 Reasoning effort: Claude Code's `output_config.effort` value (the one you see in
 the UI as `◐ medium · /effort`) is forwarded as Kimi's `reasoning_effort` (`low`
-/ `medium` / `high`). Thinking blocks from the upstream model are forwarded to
+/ `medium` / `high`). Stronger Claude Code values (`max`, `xhigh`, `ultracode`)
+are collapsed to `high`. Thinking blocks from the upstream model are forwarded to
 Claude Code and rendered as thinking content. If Claude Code disables thinking,
 the proxy drops both `reasoning_effort` and the `thinking: {type: "enabled"}`
 flag before forwarding.
@@ -348,11 +412,12 @@ The catalog advertised by `/v1/models` is generated from
 Claude Code's `/effort` setting is mapped onto Cursor catalog ids when the
 selected Cursor model exposes matching effort variants. For example,
 `ANTHROPIC_MODEL=cursor:gpt-5.5` plus `/effort high` requests
-`gpt-5.5-high`, while `/effort max` picks the strongest available catalog
-variant such as `xhigh`, `extra-high`, or `high`. Explicit effort model ids
-such as `cursor:gpt-5.5-low` are respected as-is, `-fast` is preserved when
-available, and models without effort variants (for example
-`cursor:gemini-3.1-pro` in the captured catalog) are left unchanged.
+`gpt-5.5-high`, `/effort xhigh` prefers exact `xhigh` variants, and `/effort
+max` or `/effort ultracode` picks the strongest available catalog variant such
+as `max`, `xhigh`, `extra-high`, or `high`. Explicit effort model ids such as
+`cursor:gpt-5.5-low` are respected as-is, `-fast` is preserved when available,
+and models without effort variants (for example `cursor:gemini-3.1-pro` in the
+captured catalog) are left unchanged.
 
 Plan mode can also be selected per request with metadata:
 
@@ -634,7 +699,7 @@ Windows, and at
 | `CCP_KIMI_OAUTH_HOST`            | `kimi.oauthHost`           | `https://auth.kimi.com`                           | Override Kimi's OAuth host (debugging only)                                                                                      |
 | `CCP_KIMI_BASE_URL`              | `kimi.baseUrl`             | `https://api.kimi.com/coding/v1`                  | Override Kimi's API base URL                                                                                                     |
 | `CCP_CODEX_MODEL`                | `codex.model`              | unset                                             | Force all Codex requests to this model (`gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`) |
-| `CCP_CODEX_EFFORT`               | `codex.effort`             | unset                                             | Force all Codex requests to this reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`)                                     |
+| `CCP_CODEX_EFFORT`               | `codex.effort`             | unset                                             | Force all Codex requests to this reasoning effort (`none`, `low`, `medium`, `high`, `xhigh`, `max`, `ultracode`; aliases normalize to `xhigh`) |
 | `CCP_CODEX_SERVICE_TIER`         | `codex.serviceTier`        | unset                                             | Force all Codex requests to this service tier (`fast`/`priority`, `flex`; `fast` is sent upstream as `priority`)                 |
 | `CCP_CODEX_BASE_URL`             | `codex.baseUrl`            | `https://chatgpt.com/backend-api/codex/responses` | Override the Codex Responses endpoint                                                                                            |
 | `CCP_CODEX_TRANSPORT`            | `codex.transport`          | `websocket`                                       | Codex transport: `websocket`, `http`, or `auto`                                                                                  |

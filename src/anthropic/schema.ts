@@ -91,6 +91,8 @@ export interface AnthropicWebSearchTool {
 
 export type AnthropicTool = AnthropicFunctionTool | AnthropicWebSearchTool;
 
+export type AnthropicEffort = "low" | "medium" | "high" | "max" | "xhigh" | "ultracode";
+
 export interface AnthropicRequest {
   model: string;
   messages: AnthropicMessage[];
@@ -103,7 +105,7 @@ export interface AnthropicRequest {
   stream?: boolean;
   thinking?: { type: string; [k: string]: unknown };
   output_config?: {
-    effort?: "low" | "medium" | "high" | "max";
+    effort?: AnthropicEffort;
     format?: { type: "json_schema"; schema: unknown; name?: string; strict?: boolean };
   };
   context_management?: unknown;

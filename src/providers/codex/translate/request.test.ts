@@ -35,6 +35,51 @@ describe("translateRequest", () => {
     expect(translated.include).toEqual(["reasoning.encrypted_content"]);
   });
 
+  it("normalizes strong Claude effort values to Codex xhigh", () => {
+    for (const effort of ["max", "xhigh", "ultracode"] as const) {
+      const translated = translateRequest({
+        ...baseRequest,
+        output_config: { effort: effort as never },
+      });
+
+      expect(translated.reasoning).toEqual({ effort: "xhigh" });
+      expect(translated.include).toEqual(["reasoning.encrypted_content"]);
+    }
+  });
+
+  it("normalizes Codex effort aliases from overrides", () => {
+    for (const override of ["xhigh", "max", "ultracode"] as const) {
+      loadConfig({ env: { CCP_CODEX_EFFORT: override }, forceReload: true });
+
+      const translated = translateRequest({
+        ...baseRequest,
+        output_config: { effort: "low" },
+      });
+
+      expect(translated.reasoning).toEqual({ effort: "xhigh" });
+      expect(translated.include).toEqual(["reasoning.encrypted_content"]);
+    }
+  });
+
+  it("rejects unknown Claude effort values", () => {
+    expect(() =>
+      translateRequest({
+        ...baseRequest,
+        output_config: { effort: "extreme" as never },
+      }),
+    ).toThrow(
+      'Invalid output_config.effort: "extreme". Must be one of: low, medium, high, max, xhigh, ultracode',
+    );
+  });
+
+  it("rejects unknown Codex effort overrides", () => {
+    loadConfig({ env: { CCP_CODEX_EFFORT: "extreme" }, forceReload: true });
+
+    expect(() => translateRequest(baseRequest)).toThrow(
+      'Invalid effort override: "extreme". Must be one of: none, low, medium, high, xhigh, max, ultracode',
+    );
+  });
+
   it("translates Anthropic web search to the Codex hosted web_search tool", () => {
     const translated = translateRequest({
       ...baseRequest,

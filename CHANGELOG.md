@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Accepted Claude Code's modern effort values `xhigh` and `ultracode`; Codex normalizes strong efforts and aliases to upstream `reasoning.effort: "xhigh"`, while Kimi and Cursor map them to their strongest supported variants.
+
 ## v0.0.21 (2026-06-15)
 
 - Forced Codex web search requests now use hosted web search correctly, fixing repeated upstream `Tool choice 'function' not found in 'tools' parameter.` errors. ([#10](https://github.com/raine/claude-code-proxy/issues/10))

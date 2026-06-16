@@ -3,14 +3,22 @@ import type {
   AnthropicImageBlock,
   AnthropicMessage,
   AnthropicRequest,
+  AnthropicEffort,
   AnthropicTextBlock,
   AnthropicToolResultContentBlock,
 } from "../../anthropic/schema.ts";
 
-const ANTHROPIC_EFFORTS = new Set(["low", "medium", "high", "max"]);
+const ANTHROPIC_EFFORTS = new Set<AnthropicEffort>([
+  "low",
+  "medium",
+  "high",
+  "max",
+  "xhigh",
+  "ultracode",
+]);
 
 export function assertValidEffort(effort: unknown): void {
-  if (effort !== undefined && !ANTHROPIC_EFFORTS.has(effort as string)) {
+  if (effort !== undefined && !ANTHROPIC_EFFORTS.has(effort as AnthropicEffort)) {
     throw new Error(
       `Invalid output_config.effort: ${JSON.stringify(effort)}. Must be one of: ${Array.from(ANTHROPIC_EFFORTS).join(", ")}`,
     );

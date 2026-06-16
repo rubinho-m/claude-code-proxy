@@ -1,13 +1,11 @@
 import type { CursorAgentMode, CursorModelRequest } from "../client.ts";
-import type { AnthropicRequest } from "../../../anthropic/schema.ts";
+import type { AnthropicEffort, AnthropicRequest } from "../../../anthropic/schema.ts";
 import { CURSOR_AGENT_MODEL_IDS, CURSOR_AGENT_MODEL_ID_SET } from "./catalog.ts";
 
 export interface CursorModelSelection {
   requestedModel: CursorModelRequest;
   mode: CursorAgentMode;
 }
-
-type AnthropicEffort = NonNullable<AnthropicRequest["output_config"]>["effort"];
 
 const COMPOSER_2_5_MODEL: CursorModelRequest = {
   modelId: "composer-2.5",
@@ -91,6 +89,7 @@ function parseRawCursorModel(raw: string): CursorModelRequest {
 }
 
 const EFFORT_SUFFIXES = [
+  "ultracode",
   "extra-high",
   "medium",
   "xhigh",
@@ -129,7 +128,10 @@ function cursorEffortSuffixCandidates(effort: AnthropicEffort): readonly string[
       return ["medium"];
     case "high":
       return ["high", "extra-high", "xhigh"];
+    case "xhigh":
+      return ["xhigh", "extra-high", "max", "high"];
     case "max":
+    case "ultracode":
       return ["max", "xhigh", "extra-high", "high"];
     default:
       return [];

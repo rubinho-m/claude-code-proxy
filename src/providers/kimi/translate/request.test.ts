@@ -4,6 +4,44 @@ import { countTokens } from "../count-tokens.ts";
 import { translateRequest } from "./request.ts";
 
 describe("translateRequest", () => {
+  const baseRequest: AnthropicRequest = {
+    model: "kimi-k2",
+    messages: [{ role: "user", content: "hello" }],
+  };
+
+  it("preserves supported reasoning effort values", () => {
+    for (const effort of ["low", "medium", "high"] as const) {
+      expect(translateRequest({
+        ...baseRequest,
+        output_config: { effort },
+      }).reasoning_effort).toBe(effort);
+    }
+  });
+
+  it("maps strong Claude effort values to Kimi high", () => {
+    for (const effort of ["max", "xhigh", "ultracode"] as const) {
+      expect(translateRequest({
+        ...baseRequest,
+        output_config: { effort: effort as never },
+      }).reasoning_effort).toBe("high");
+    }
+  });
+
+  it("defaults reasoning effort to medium", () => {
+    expect(translateRequest(baseRequest).reasoning_effort).toBe("medium");
+  });
+
+  it("rejects unknown Claude effort values", () => {
+    expect(() =>
+      translateRequest({
+        ...baseRequest,
+        output_config: { effort: "extreme" as never },
+      }),
+    ).toThrow(
+      'Invalid output_config.effort: "extreme". Must be one of: low, medium, high, max, xhigh, ultracode',
+    );
+  });
+
   it("translates unsupported tool result content blocks as text parts", () => {
     const req: AnthropicRequest = {
       model: "kimi-k2",

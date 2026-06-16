@@ -112,6 +112,40 @@ describe("Cursor model selection", () => {
     }).requestedModel).toEqual({ modelId: "gpt-5.2-xhigh" });
   });
 
+  it("maps xhigh effort to exact Cursor xhigh variants when available", () => {
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.2",
+      metadata: undefined,
+      output_config: { effort: "xhigh" as never },
+    }).requestedModel).toEqual({ modelId: "gpt-5.2-xhigh" });
+  });
+
+  it("maps ultracode effort to the strongest available Cursor effort variant", () => {
+    expect(resolveCursorModel({
+      model: "cursor:claude-opus-4-8",
+      metadata: undefined,
+      output_config: { effort: "ultracode" as never },
+    }).requestedModel).toEqual({ modelId: "claude-opus-4-8-max" });
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.2",
+      metadata: undefined,
+      output_config: { effort: "ultracode" as never },
+    }).requestedModel).toEqual({ modelId: "gpt-5.2-xhigh" });
+    expect(resolveCursorModel({
+      model: "cursor:gpt-5.5",
+      metadata: undefined,
+      output_config: { effort: "ultracode" as never },
+    }).requestedModel).toEqual({ modelId: "gpt-5.5-extra-high" });
+  });
+
+  it("does not override explicit future ultracode Cursor effort ids", () => {
+    expect(resolveCursorModel({
+      model: "cursor:future-model-ultracode",
+      metadata: undefined,
+      output_config: { effort: "max" },
+    }).requestedModel).toEqual({ modelId: "future-model-ultracode" });
+  });
+
   it("applies effort independently of Cursor mode prefixes", () => {
     expect(resolveCursorModel({
       model: "cursor-plan:claude-opus-4-8",
